@@ -29,7 +29,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <limits.h>
 #include <stdbool.h>
 
@@ -37,6 +39,9 @@
 #include <sndfile.h> // http://www.mega-nerd.com/libsndfile/
 
 #include "vector.h"  // comes with release
+
+//int optind = 0;
+//int optarg = 0;
 
 #define NOK      0
 
@@ -64,6 +69,7 @@ int isnan(double x) {
 }
 #endif
 
+#if 0
 #ifndef log2
 // a base-2 log function
 double log2(double x) { 
@@ -76,6 +82,7 @@ double log2(double x) {
 double round(double x) { 
     return(x >= 0. ? floor(x + .5) : floor(x - .5));
 }
+#endif
 #endif
 
 // converts from hertz to Mel frequency
@@ -355,16 +362,15 @@ vector pitch(matrix S, vector pc, double st) {
 }
 
 // primary utility function for each pitch extraction
-vector swipe(int fid, double min, double max, double st, double dt) {
+__declspec(dllexport) int __cdecl swipe(const double *samples, int samplecount, int samplerate,
+    double *_pitch, int pitchcount,
+    double min, double max, double st, double dt)
+{
     int i; 
     double td = 0.;
-    SF_INFO info;
-    SNDFILE* source = sf_open_fd(fid, SFM_READ, &info, true);
-    if (source == NULL || info.sections < 1) 
-        return(makev(0)); 
-    double nyquist = info.samplerate / 2.;
-    double nyquist2 = info.samplerate;
-    double nyquist16 = info.samplerate * 8.;
+    double nyquist = samplerate / 2.;
+    double nyquist2 = samplerate;
+    double nyquist16 = samplerate * 8.;
     if (max > nyquist) {
         max = nyquist;
         fprintf(stderr, "Max pitch exceeds Nyquist frequency...");
@@ -373,6 +379,11 @@ vector swipe(int fid, double min, double max, double st, double dt) {
     if (dt > nyquist2) {
         dt = nyquist2;
         fprintf(stderr, "Timestep > SR...timestep set to %f.\n", nyquist2);
+    }
+    int requiredpitchcount = ceil(((double)samplecount / nyquist2) / dt);
+    if (requiredpitchcount > pitchcount)
+    {
+        return requiredpitchcount;
     }
     intvector ws = makeiv(round(log2((nyquist16) / min) -  
                                 log2((nyquist16) / max)) + 1); 
@@ -385,9 +396,8 @@ vector swipe(int fid, double min, double max, double st, double dt) {
         pc.v[i] = pow(2, td);
         d.v[i] = 1. + td - log2(nyquist16 / ws.v[0]); 
     } // td now equals log2(min)
-    vector x = makev((int) info.frames); // read in the signal
-    sf_read_double(source, x.v, x.x);
-    sf_close(source); // takes wavf with it, too
+    vector x = makev(samplecount); // read in the signal
+    memcpy(x.v, samples, sizeof(double) * x.x);
     vector fERBs = makev(ceil((hz2erb(nyquist) - 
                                hz2erb(pow(2, td) / 4)) / DERBS));
     td = hz2erb(min / 4.);
@@ -396,7 +406,7 @@ vector swipe(int fid, double min, double max, double st, double dt) {
     intvector ps = onesiv(floor(fERBs.v[fERBs.x - 1] / pc.v[0] - .75));
     sieve(ps);
     ps.v[0] = PR; // hack to make 1 "act" prime...don't ask
-    matrix S = zerom(pc.x, ceil(((double) x.x / nyquist2) / dt));
+    matrix S = zerom(pc.x, requiredpitchcount);
     Sfirst(S, x, pc, fERBs, d, ws, ps, nyquist, nyquist2, dt, 0); 
     for (i = 1; i < ws.x - 1; i++) // S is updated inline here
         Snth(S, x, pc, fERBs, d, ws, ps, nyquist, nyquist2, dt, i);
@@ -410,9 +420,12 @@ vector swipe(int fid, double min, double max, double st, double dt) {
     vector p = pitch(S, pc, st); // find pitch using strength matrix
     freev(pc);
     freem(S);
-    return(p);
+    memcpy(_pitch, p.v, sizeof(double) * requiredpitchcount);
+    freev(p);
+    return requiredpitchcount;
 }
 
+#if 0
 // a Python version of the call
 vector pyswipe(char wav[], double min, double max, double st, double dt) {
     return swipe(fileno(fopen(wav, "r")), min, max, st, dt);
@@ -442,6 +455,7 @@ void printp(vector p, int fid, double dt, int mel, int vlo) {
         if (vlo) {
             for (i = 0; i < p.x; i++) {
                 fprintf(sink, "%4.4f %5.4f\n", t, p.v[i]); 
+                fflush(sink);
                 t += dt;
             }
         }
@@ -639,3 +653,4 @@ swipe [-i FILE] [-o FILE] [-b LIST] [-r MIN:MAX] [-s TS] [-t DT] [-mnhv]\n\
     }
     exit(EXIT_SUCCESS);
 }
+#endif

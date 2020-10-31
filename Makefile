@@ -8,7 +8,7 @@ PYLIBS=build/
 all: $(TARGET) $(PYLIBS)
 
 $(TARGET):
-	$(CC) $(CFLAGS) -o $(TARGET) $(TARGET).c vector.c -lm -lc -lblas -llapack -lfftw3 -lsndfile
+	$(CC) $(CFLAGS) -o $(TARGET) $(TARGET).c vector.c -lm -lblas -llapack -lfftw3 -lsndfile
 
 $(WRAPPERS):
 	swig -python -threads $(TARGET).i

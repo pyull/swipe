@@ -1,0 +1,1 @@
+python setup.py build build_ext -I../third_party/win-x64/include -L../third_party/win-x64/lib
